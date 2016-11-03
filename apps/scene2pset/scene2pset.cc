@@ -241,7 +241,8 @@ main (int argc, char** argv)
         if (conf.with_conf)
         {
             /* Per-vertex confidence down-weighting boundaries. */
-            mve::geom::depthmap_mesh_confidences(mesh, 4);
+            int erode_iterations = std::floor(conf.scale_factor);
+            mve::geom::depthmap_mesh_confidences(mesh, erode_iterations, 3);
 
 #if 0
             /* Per-vertex confidence based on normal-viewdir dot product. */
