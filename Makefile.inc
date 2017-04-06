@@ -3,7 +3,8 @@ CXX ?= g++
 CXXWARNINGS ?= -Wall -Wextra -Wundef -pedantic
 CXXINTRINSICS ?= -msse2 -msse3 -mpopcnt
 CXXFEATURES ?= -funsafe-math-optimizations -fno-math-errno -std=c++11
-CXXFLAGS ?= ${CXXWARNINGS} ${CXXINTRINSICS} ${CXXFEATURES} -g -O3
+CXXFLAGS ?= ${CXXWARNINGS} ${CXXINTRINSICS} ${CXXFEATURES} -g -pg -O3
+LDFLAGS ?= -pg
 
 # Delete this if OpenMP is not available (e.g., OS X without gcc)
 OPENMP ?= -fopenmp
