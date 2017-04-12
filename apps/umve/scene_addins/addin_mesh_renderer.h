@@ -15,6 +15,7 @@
 #include <QWidget>
 #include <QCheckBox>
 #include <QBoxLayout>
+#include <QFormLayout>
 
 #include "mve/mesh.h"
 
@@ -27,6 +28,7 @@ class AddinMeshesRenderer : public AddinBase
 
 public:
     AddinMeshesRenderer (void);
+    ~AddinMeshesRenderer (void);
     QWidget* get_sidebar_widget (void);
 
     void add_mesh (std::string const& name,
@@ -37,14 +39,23 @@ public:
     void load_mesh (std::string const& filename);
 
 protected:
+    void init_impl (void);
+    void resize_impl (int old_width, int old_height);
     void paint_impl (void);
 
 private:
-    QVBoxLayout* render_meshes_box;
+    void resize_buffers(int width, int height);
+
+private:
+    QFormLayout* render_meshes_form;
     QCheckBox* render_lighting_cb;
     QCheckBox* render_wireframe_cb;
     QCheckBox* render_color_cb;
+    QCheckBox* render_splat_cb;
+    QSlider* splat_size_slider;
+    QVBoxLayout* render_meshes_box;
     QMeshList* mesh_list;
+    GLuint rbo_color, rbo_depth, fbo;
 };
 
 #endif /* UMVE_ADDIN_MESHES_RENDERER_HEADER */

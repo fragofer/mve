@@ -30,8 +30,8 @@ AddinFrustaSceneRenderer::AddinFrustaSceneRenderer (void)
     this->render_frusta_form = new QFormLayout();
     this->render_frusta_form->setVerticalSpacing(0);
     this->render_frusta_form->addRow(this->render_frusta_cb);
+    this->render_frusta_form->addRow("Size:", this->frusta_size_slider);
     this->render_frusta_form->addRow(this->render_viewdir_cb);
-    this->render_frusta_form->addRow("Frusta Size:", this->frusta_size_slider);
 
     this->connect(&SceneManager::get(), SIGNAL(scene_bundle_changed()),
         this, SLOT(reset_frusta_renderer()));

@@ -11,5 +11,13 @@ layout(location=0) out vec4 frag_color;
 
 void main(void)
 {
-    frag_color = texture(texunit, otexuv);
+    vec4 color = texture(texunit, vec2(otexuv.x, 1.0 - otexuv.y));
+
+    if (color.a == 0)
+       discard;
+
+    if (color.a > 1.0)
+        frag_color = vec4(color.rgb / (color.a - 1.0), 1.0);
+    else
+        frag_color = color;
 }

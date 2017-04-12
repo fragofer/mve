@@ -173,7 +173,7 @@ AddinOffscreenRenderer::get_offscreen_image (void)
     glBindFramebuffer(GL_FRAMEBUFFER, bf[0]);
 
     glBindRenderbuffer(GL_RENDERBUFFER, rb[0]);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGB, width, height);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA, width, height);
     glBindRenderbuffer(GL_RENDERBUFFER, rb[1]);
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, width, height);
     glFramebufferRenderbuffer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
@@ -183,9 +183,10 @@ AddinOffscreenRenderer::get_offscreen_image (void)
     this->repaint();
 
     /* Read color image from OpenGL. */
-    mve::ByteImage::Ptr image = mve::ByteImage::create(width, height, 3);
-    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, image->begin());
+    mve::ByteImage::Ptr image = mve::ByteImage::create(width, height, 4);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, image->begin());
     mve::image::flip<uint8_t>(image, mve::image::FLIP_VERTICAL);
+    image->delete_channel(3);
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glDeleteRenderbuffers(2, rb);

@@ -93,6 +93,11 @@ AddinSelection::redraw_gui (void)
     ex = math::clamp(ex, 0, w-1);
     ey = math::clamp(ey, 0, h-1);
 
+    /* Invert y to conform to opengl coordinate system. */
+    int tmp = sy;
+    sy = h - ey;
+    ey = h - tmp;
+
     for (int y = sy; y <= ey; ++y)
         for (int x = sx; x <= ex; ++x)
         {

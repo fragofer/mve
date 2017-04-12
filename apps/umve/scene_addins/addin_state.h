@@ -24,6 +24,7 @@ struct AddinState
 {
 public:
     GLWidget* gl_widget;
+    ogl::ShaderProgram::Ptr point_shader;
     ogl::ShaderProgram::Ptr surface_shader;
     ogl::ShaderProgram::Ptr wireframe_shader;
     ogl::ShaderProgram::Ptr texture_shader;

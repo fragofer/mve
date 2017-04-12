@@ -10,6 +10,7 @@
 #include "ogl/opengl.h"
 #include "ogl/texture.h"
 #include "ogl/mesh_renderer.h"
+#include "ogl/render_tools.h"
 
 #include "math/vector.h"
 #include "util/file_system.h"
@@ -23,20 +24,33 @@
 #include "scene_addins/addin_mesh_renderer.h"
 
 AddinMeshesRenderer::AddinMeshesRenderer (void)
+    : rbo_color(0), rbo_depth(0), fbo(0)
 {
-    this->render_lighting_cb = new QCheckBox("Mesh lighting");
+    this->render_lighting_cb = new QCheckBox("Activate lighting");
     this->render_wireframe_cb = new QCheckBox("Render wireframe");
-    this->render_color_cb = new QCheckBox("Render mesh color");
+    this->render_color_cb = new QCheckBox("Render vertex color");
+    this->render_splat_cb = new QCheckBox("Render point splat");
+    this->splat_size_slider = new QSlider();
+    this->splat_size_slider->setMinimum(1);
+    this->splat_size_slider->setMaximum(100);
+    this->splat_size_slider->setValue(10);
+    this->splat_size_slider->setOrientation(Qt::Horizontal);
     this->mesh_list = new QMeshList();
 
     this->render_lighting_cb->setChecked(true);
     this->render_color_cb->setChecked(true);
 
+    this->render_meshes_form = new QFormLayout();
+    this->render_meshes_form->setVerticalSpacing(0);
+    this->render_meshes_form->setSpacing(0);
+    this->render_meshes_form->addRow(this->render_lighting_cb);
+    this->render_meshes_form->addRow(this->render_wireframe_cb);
+    this->render_meshes_form->addRow(this->render_color_cb);
+    this->render_meshes_form->addRow(this->render_splat_cb);
+    this->render_meshes_form->addRow("Size:", this->splat_size_slider);
+
     this->render_meshes_box = new QVBoxLayout();
-    this->render_meshes_box->setSpacing(0);
-    this->render_meshes_box->addWidget(this->render_lighting_cb);
-    this->render_meshes_box->addWidget(this->render_wireframe_cb);
-    this->render_meshes_box->addWidget(this->render_color_cb);
+    this->render_meshes_box->addLayout(this->render_meshes_form);
     this->render_meshes_box->addSpacing(5);
     this->render_meshes_box->addWidget(this->mesh_list, 1);
 
@@ -46,8 +60,13 @@ AddinMeshesRenderer::AddinMeshesRenderer (void)
         this, SLOT(repaint()));
     this->connect(this->render_color_cb, SIGNAL(clicked()),
         this, SLOT(repaint()));
+    this->connect(this->render_splat_cb, SIGNAL(clicked()),
+        this, SLOT(repaint()));
+    this->connect(this->splat_size_slider, SIGNAL(valueChanged(int)),
+        this, SLOT(repaint()));
     this->connect(this->mesh_list, SIGNAL(signal_redraw()),
         this, SLOT(repaint()));
+
 }
 
 QWidget*
@@ -166,6 +185,9 @@ AddinMeshesRenderer::load_mesh (std::string const& filename)
 void
 AddinMeshesRenderer::paint_impl (void)
 {
+    this->state->point_shader->bind();
+    this->state->point_shader->send_uniform("lighting",
+        static_cast<int>(this->render_lighting_cb->isChecked()));
     this->state->surface_shader->bind();
     this->state->surface_shader->send_uniform("lighting",
         static_cast<int>(this->render_lighting_cb->isChecked()));
@@ -192,12 +214,15 @@ AddinMeshesRenderer::paint_impl (void)
         /* Determine shader to use:
          * - use texture shader if a texture is available
          * - use wireframe shader for points without normals
+         * - use point shader for points with normals
          * - use surface shader otherwise. */
         ogl::ShaderProgram::Ptr mesh_shader;
         if (mr.texture != nullptr)
             mesh_shader = this->state->texture_shader;
         else if (!mr.mesh->has_vertex_normals())
             mesh_shader = this->state->wireframe_shader;
+        else if (mr.mesh->get_faces().empty() && this->render_splat_cb->isChecked())
+            mesh_shader = this->state->point_shader;
         else
             mesh_shader = this->state->surface_shader;
 
@@ -234,7 +259,75 @@ AddinMeshesRenderer::paint_impl (void)
                     GL_LINEAR_MIPMAP_LINEAR);
             }
 
-            mr.renderer->draw();
+            if (mesh_shader == this->state->point_shader)
+            {
+                GLint viewport[4];
+                glGetIntegerv(GL_VIEWPORT, viewport);
+                int vwidth = viewport[2];
+                int vheight = viewport[3];
+                GLint vfbo;
+                glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &vfbo);
+                if (vwidth != this->width || vheight != this->height)
+                    this->resize_buffers(vwidth, vheight);
+
+                /* Update depth buffer, default -> fbo. */
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, vfbo);
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, this->fbo);
+                glBlitFramebuffer(0, 0, vwidth, vheight, 0, 0,
+                    vwidth, vheight, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+                //glBlitFramebuffer(0, 0, this->width, this->height, 0, 0,
+                //    this->width, this->height, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+
+                glBindTexture(GL_TEXTURE_2D, this->rbo_color);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                glBindFramebuffer(GL_FRAMEBUFFER, this->fbo);
+                glClearColor(0.0, 0.0, 0.0, 0.0);
+                glClear(GL_COLOR_BUFFER_BIT);
+
+                /* Render first pass (only depth). */
+                mesh_shader->bind();
+                mesh_shader->send_uniform("pass", 0);
+                float size = std::pow(this->splat_size_slider->value() / 100.0f, 2.2f) * 0.25f;
+                mesh_shader->send_uniform("size", size);
+                mr.renderer->draw();
+
+                /* Render second pass (only color, alpha unnormalized). */
+                glBlendFunc(GL_ONE, GL_ONE);
+                glEnable(GL_BLEND);
+                glDepthMask(GL_FALSE);
+
+                mesh_shader->bind();
+                mesh_shader->send_uniform("pass", 1);
+                mr.renderer->draw();
+
+                glDepthMask(GL_TRUE);
+                glDisable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+                /* Update depth buffer, fbo -> default. */
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, this->fbo);
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, vfbo);
+                glBlitFramebuffer(0, 0, vwidth, vheight, 0, 0,
+                    vwidth, vheight, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+
+                /* Normalize alpha and write to default frame buffer. */
+                glDisable(GL_DEPTH_TEST);
+                this->state->overlay_shader->bind();
+                glBindTexture(GL_TEXTURE_2D, this->rbo_color);
+                this->state->gui_renderer->draw();
+                glEnable(GL_DEPTH_TEST);
+
+                if (vwidth != this->width || vheight != this->height)
+                    this->resize_buffers(this->width, this->height);
+
+                glBindFramebuffer(GL_FRAMEBUFFER, vfbo);
+            }
+            else
+            {
+                mr.renderer->draw();
+            }
+
             glDisable(GL_POLYGON_OFFSET_FILL);
 
             if (this->render_wireframe_cb->isChecked())
@@ -251,4 +344,68 @@ AddinMeshesRenderer::paint_impl (void)
             }
         }
     }
+}
+
+void
+AddinMeshesRenderer::resize_impl (int /*old_width*/, int /*old_height*/)
+{
+    resize_buffers(this->width, this->height);
+}
+
+void
+AddinMeshesRenderer::resize_buffers(int width, int height)
+{
+    if (this->rbo_color)
+    {
+        glBindTexture(GL_TEXTURE_2D, this->rbo_color);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F,
+            width, height, 0, GL_RGBA, GL_FLOAT, 0);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+    if (this->rbo_depth)
+    {
+        glBindRenderbuffer(GL_RENDERBUFFER, this->rbo_depth);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT,
+                width, height);
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+    }
+}
+
+
+
+void
+AddinMeshesRenderer::init_impl()
+{
+    glGenTextures(1, &this->rbo_color);
+    glBindTexture(GL_TEXTURE_2D, this->rbo_color);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F,
+        this->width, this->height, 0, GL_RGBA, GL_FLOAT, 0);
+    glGenRenderbuffers(1, &this->rbo_depth);
+    glBindRenderbuffer(GL_RENDERBUFFER, this->rbo_depth);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, this->width, this->height);
+    glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+    glGenFramebuffers(1, &this->fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, this->fbo);
+    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, rbo_color, 0);
+    GLenum draw_buffer = GL_COLOR_ATTACHMENT0;
+    glDrawBuffers(1, &draw_buffer);
+    glFramebufferRenderbuffer(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+        GL_RENDERBUFFER, this->rbo_depth);
+    GLenum status = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        throw std::runtime_error("Could not create framebuffer");
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+AddinMeshesRenderer::~AddinMeshesRenderer (void)
+{
+    if (this->fbo)
+        glDeleteFramebuffers(1, &this->fbo);
+    if (this->rbo_depth)
+        glDeleteRenderbuffers(1, &this->rbo_depth);
+    if (this->rbo_color)
+        glDeleteTextures(1, &this->rbo_color);
 }

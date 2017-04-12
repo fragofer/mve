@@ -26,7 +26,7 @@ AddinState::repaint (void)
     if (this->gl_widget == nullptr)
         return;
 
-    this->gl_widget->repaint();
+    this->gl_widget->repaint_gl();
 }
 
 void
@@ -85,6 +85,8 @@ void
 AddinState::load_shaders (void)
 {
     /* Create shader programs only if necessary. */
+    if (!this->point_shader)
+        this->point_shader = ogl::ShaderProgram::create();
     if (!this->surface_shader)
         this->surface_shader = ogl::ShaderProgram::create();
     if (!this->wireframe_shader)
@@ -103,6 +105,7 @@ AddinState::load_shaders (void)
     shader_paths.push_back("/usr/local/share/umve/shaders/");
     shader_paths.push_back("/usr/share/umve/shaders/");
 
+    bool found_point = false;
     bool found_surface = false;
     bool found_wireframe = false;
     bool found_texture = false;
@@ -111,6 +114,9 @@ AddinState::load_shaders (void)
     {
         try
         {
+            if (!found_point)
+                found_point = this->point_shader->try_load_all
+                    (shader_paths[i] + "point_330");
             if (!found_surface)
                 found_surface = this->surface_shader->try_load_all
                     (shader_paths[i] + "surface_330");
@@ -136,6 +142,12 @@ AddinState::load_shaders (void)
      * Shaders loaded later override those loaded earlier, so try
      * Qt Resources first and files afterwards.
      */
+    if (!found_point)
+    {
+        std::cout << "Using built-in point shader." << std::endl;
+        load_shaders_from_resources(this->point_shader,
+            ":/shaders/point_330");
+    }
     if (!found_surface)
     {
         std::cout << "Using built-in surface shader." << std::endl;
@@ -169,6 +181,11 @@ AddinState::send_uniform (ogl::Camera const& cam)
     this->wireframe_shader->bind();
     this->wireframe_shader->send_uniform("viewmat", cam.view);
     this->wireframe_shader->send_uniform("projmat", cam.proj);
+
+    /* Setup point shader. */
+    this->point_shader->bind();
+    this->point_shader->send_uniform("viewmat", cam.view);
+    this->point_shader->send_uniform("projmat", cam.proj);
 
     /* Setup surface shader. */
     this->surface_shader->bind();
