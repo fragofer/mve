@@ -47,6 +47,7 @@ UTIL_FS_NAMESPACE_BEGIN
 
 // PATH_MAX might be long?
 char home_path[PATH_MAX] = { 0 };
+char temp_path[PATH_MAX] = { 0 };
 char app_data_path[PATH_MAX] = { 0 };
 
 bool
@@ -216,6 +217,35 @@ get_home_dir (void)
 #endif // _WIN32
 
   return home_path;
+}
+
+/* ---------------------------------------------------------------- */
+
+char const*
+get_temp_dir (void)
+{
+    if (*temp_path != 0)
+        return temp_path;
+
+#ifdef _WIN32
+    DWORD len = GetTempPath(MAX_PATH, temp_path);
+    if (len == 0 || len > MAX_PATH)
+        throw util::Exception("Cannot determine home directory");
+#else // _WIN32
+    const char * env_vars [] = {"TMPDIR", "TMP", "TEMP", "TEMPDIR"};
+    for (std::size_t i = 0; i < 4; ++i)
+    {
+        const char * val = std::getenv(env_vars[i]);
+        if (val != nullptr)
+        {
+            std::strncpy(temp_path, val, PATH_MAX);
+            return temp_path;
+        }
+    }
+    std::strncpy(temp_path, "/tmp", PATH_MAX);
+#endif // _WIN32
+
+  return temp_path;
 }
 
 /* ---------------------------------------------------------------- */

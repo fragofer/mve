@@ -22,6 +22,9 @@
 #define UTIL_SYSTEM_NAMESPACE_BEGIN namespace system {
 #define UTIL_SYSTEM_NAMESPACE_END }
 
+#define UTIL_PROCESS_NAMESPACE_BEGIN namespace process {
+#define UTIL_PROCESS_NAMESPACE_END }
+
 #ifndef STD_NAMESPACE_BEGIN
 #   define STD_NAMESPACE_BEGIN namespace std {
 #   define STD_NAMESPACE_END }

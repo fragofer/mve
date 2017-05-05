@@ -37,6 +37,9 @@ char const* get_app_data_dir (void);
 /** Determines the home path for the current user. */
 char const* get_home_dir (void);
 
+/** Determines the path of the temp directory. */
+char const* get_temp_dir (void);
+
 /** Determines the current working directory of the process. */
 char* get_cwd (char* buf, std::size_t size);
 
