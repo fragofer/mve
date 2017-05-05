@@ -15,6 +15,11 @@
 #include <vector>
 #include <algorithm>
 
+#include <fstream>
+#include <cerrno>
+#include <cstring>
+#include "util/exception.h"
+
 #include "sfm/ba_dense_vector.h"
 #include "sfm/defines.h"
 
@@ -67,6 +72,9 @@ public:
     T* end (void);
 
     void debug (void) const;
+
+    static void save (SparseMatrix const& mat, std::string const& filename);
+    static void load (std::string const& filename, SparseMatrix * mat);
 
 private:
     std::size_t rows;
@@ -330,7 +338,7 @@ SparseMatrix<T>::parallel_multiply (SparseMatrix const& rhs) const
     std::size_t const num_chunks = ret.cols / chunk_size
          + (ret.cols % chunk_size != 0);
     std::size_t const max_threads = std::max(1u,
-        std::thread::hardware_concurrency());
+        std::thread::hardware_concurrency() / 2);
     std::size_t const num_threads = std::min(num_chunks, max_threads);
 
 #pragma omp parallel num_threads(num_threads)
@@ -346,9 +354,6 @@ SparseMatrix<T>::parallel_multiply (SparseMatrix const& rhs) const
 #pragma omp for ordered schedule(static, 1)
         for (std::size_t chunk = 0; chunk < num_chunks; ++chunk)
         {
-            thread_inner.clear();
-            thread_values.clear();
-
             std::size_t const begin = chunk * chunk_size;
             std::size_t const end = std::min(begin + chunk_size, ret.cols);
             for (std::size_t col = begin; col < end; ++col)
@@ -387,6 +392,9 @@ SparseMatrix<T>::parallel_multiply (SparseMatrix const& rhs) const
                 ret.values.insert(ret.values.end(),
                     thread_values.begin(), thread_values.end());
             }
+
+            thread_inner.clear();
+            thread_values.clear();
         }
     }
 
@@ -499,6 +507,97 @@ inline T*
 SparseMatrix<T>::end (void)
 {
     return this->values.data() + this->values.size();
+}
+
+#define SPARSE_MATRIX_SIGNATURE "MVE_SPARSE_MATRIX\n"
+#define SPARSE_MATRIX_SIGNATURE_LEN 18
+
+#ifdef HOST_BYTEORDER_LE
+#   define HOST_BYTEORDER_SIGN '<'
+#else
+#   define HOST_BYTEORDER_SIGN '>'
+#endif
+
+template<typename T>
+void
+SparseMatrix<T>::save (SparseMatrix<T> const& mat, std::string const& filename)
+{
+    std::ofstream out(filename.c_str(), std::ios::binary);
+    if (!out.good())
+        throw util::FileException(filename, std::strerror(errno));
+
+    out.write(SPARSE_MATRIX_SIGNATURE, SPARSE_MATRIX_SIGNATURE_LEN);
+
+    out << mat.num_rows() << ' ' << mat.num_cols() << ' '
+        << HOST_BYTEORDER_SIGN << sizeof(T) << ' '
+        << mat.num_non_zero() << std::endl;
+    out.write((char const*)mat.values.data(),
+        mat.values.size() * sizeof(T));
+    out.write((char const*)mat.outer.data(),
+        mat.outer.size() * sizeof(std::size_t));
+    out.write((char const*)mat.inner.data(),
+        mat.inner.size() * sizeof(std::size_t));
+
+    out.close();
+}
+
+template<typename T>
+void
+SparseMatrix<T>::load (std::string const& filename, SparseMatrix<T> * mat)
+{
+    std::ifstream in(filename.c_str(), std::ios::binary);
+    if (!in.good())
+        throw util::FileException(filename, std::strerror(errno));
+
+    char signature[SPARSE_MATRIX_SIGNATURE_LEN + 1];
+    in.read(signature, SPARSE_MATRIX_SIGNATURE_LEN);
+    signature[SPARSE_MATRIX_SIGNATURE_LEN] = '\0';
+    if (std::string(SPARSE_MATRIX_SIGNATURE) != signature)
+    {
+        in.close();
+        throw std::invalid_argument("Invalid sparse matrix file signature");
+    }
+
+    std::size_t rows = 0;
+    std::size_t cols = 0;
+    std::size_t nnz = 0;
+    char byteorder = ' ';
+    std::size_t size = 0;
+    in >> rows >> cols >> byteorder >> size >> nnz;
+    if (in.fail())
+    {
+        in.close();
+        throw util::Exception("Invalid sparse matrix header");
+    }
+
+    /* Discard the rest of the line. */
+    std::string buffer;
+    std::getline(in, buffer);
+
+    //TODO handle conversion
+    if (byteorder != HOST_BYTEORDER_SIGN || size != sizeof(T))
+    {
+        in.close();
+        throw util::Exception("Incopatible sparse matrix types");
+    }
+
+    mat->allocate(rows, cols);
+    mat->values.resize(nnz);
+    in.read(reinterpret_cast<char*>(mat->values.data()),
+        nnz * sizeof(T));
+    in.read(reinterpret_cast<char*>(mat->outer.data()),
+        mat->outer.size() * sizeof(std::size_t));
+    mat->inner.resize(nnz);
+    in.read(reinterpret_cast<char*>(mat->inner.data()),
+        nnz * sizeof(std::size_t));
+
+    if (in.eof())
+    {
+        in.close();
+        throw util::Exception("Premature EOF");
+    }
+
+    in.close();
 }
 
 template<typename T>
